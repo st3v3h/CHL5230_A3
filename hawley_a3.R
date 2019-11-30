@@ -3,8 +3,13 @@
 # Author: Steve Hawley
 # Date: Dec 1, 2019
 
+##########################################
+########### Data Preparation #############
+
+#read in data set
 nuc <- read.csv("Data_Cortex_Nuclear.csv")
 
+#take a look at the data
 str(nuc)
 summary(nuc)
 
@@ -15,7 +20,7 @@ nuc.cl <- nuc
 nuc.cl <- nuc.cl[,-which(colMeans(is.na(nuc.cl))>0.1)]
 nuc.cl <- nuc.cl[-which(rowMeans(is.na(nuc.cl))>0.1),]
 
-#replace remaining NAs with column means within same class
+#replace remaining NAs with column means *within same class*
 x <- unname(which(unlist(lapply(nuc.cl, is.numeric))))
 for(i in x){
   nuc.cl[,i]<-ave(nuc.cl[,i],nuc.cl$class,FUN=function(y) 
@@ -24,92 +29,106 @@ for(i in x){
 
 summary(nuc.cl)
 
-#scale the feature space for cluster analysis
+#scale the feature space (i.e., gene expression) for cluster analysis
 sc <- scale(nuc.cl[,2:73])
 
 ##########################################
 ########## k means clustering ############
 
-# K-Means Cluster Analysis
-fit <- kmeans(sc, 8, nstart = 20) # 8 cluster solution
-# get cluster means
-aggregate(sc,by=list(fit$cluster),FUN=mean)
-# append cluster assignment
-mydata <- data.frame(sc, fit$cluster) 
+library(factoextra) #for cluster plots
 
-clusplot(sc, fit$cluster, color=TRUE, shade=TRUE,
-         labels=2, lines=0)
+# K-Means Cluster Analysis. Starting with 8 clusters to align with the 8 classes
+fit.8 <- kmeans(sc, 8)
+#plot clusters using principal components (fviz_cluster takes first to PCs by default)
+fviz_cluster(list(data = sc, cluster = fit.8$cluster))
+table(fit.8$cluster, nuc.cl$class)
 
-table(fit$cluster, nuc.cl$class)
-
+#Will try a 2 cluster solution to look at other experimental conditions
 fit.2 <- kmeans(sc, 2)
+fviz_cluster(list(data = sc, cluster = fit.2$cluster))
 table(fit.2$cluster,nuc.cl$Genotype)
 table(fit.2$cluster,nuc.cl$Treatment)
 table(fit.2$cluster,nuc.cl$Behavior)
+
+#Will try a 2 cluster solution on the genes instead of the mice
+fit.2.g <- kmeans(t(sc), 2)
+fviz_cluster(list(data = t(sc), cluster = fit.2.g$cluster))
+
+
+##########################################
+################## PAM ###################
+
+library(cluster) #for PAM
+
+#will start with 8 cluster solution
+pam.8 <- pam(sc,k = 5)
+fviz_cluster(list(data = sc, cluster = pam.8$clustering))
+table(pam.8$cluster, nuc.cl$class)
+
+#Will try a 2 cluster solution to look at other experimental consitions
+pam.2 <- pam(sc, 2)
+fviz_cluster(list(data = sc, cluster = pam.2$cluster))
+table(pam.2$cluster,nuc.cl$Genotype)
+table(pam.2$cluster,nuc.cl$Treatment)
+table(pam.2$cluster,nuc.cl$Behavior)
 
 
 ##########################################
 ##### Hierarchical clustering ############
 
-hc.complete <- hclust(dist(sc), method="complete")
-plot(hc.complete,main="Complete Linkage", xlab="", sub="",cex =.9)
-cut.tree.com <- cutree(hc.complete,k=8)
-table(cut.tree.com,nuc.cl$class)
+library(gplots) #for heatmap.2
 
+#Will attempt 8 cluster solution with complete linkage, then average, then Ward's
+#Complete
+hc.complete.8 <- hclust(dist(sc), method="complete")
+plot(hc.complete.8, main="Complete Linkage", xlab="", sub="",cex =.9)
+cut.tree.com.8 <- cutree(hc.complete.8,k=8)
+fviz_cluster(list(data = sc, cluster = cut.tree.com.8),ellipse.type = "norm")
+table(cut.tree.com.8,nuc.cl$class)
 
-# iris.hc.complete <- hclust(dist(scale(nuc.cl[,2:73])), method="complete")
-# plot(iris.hc.complete,main="Complete Linkage", xlab="", sub="", cex =.9)
-# cut.tree.com <- cutree(iris.hc.complete,k=8)
-# table(cut.tree.com,nuc.cl$Treatment)
-# table(cut.tree.com,nuc.cl$Genotype)
-# table(cut.tree.com,nuc.cl$class)
+#completing one example heatmap
+mycolhc <- rainbow(length(unique(cut.tree.com.8)), start=0.1, end=0.9); 
+mycolhc <- mycolhc[as.vector(cut.tree.com.8)]
+heatmap.2(sc, Rowv=as.dendrogram(hc.complete.8), trace="none",RowSideColors=mycolhc) 
 
+#Average
+hc.average.8 <- hclust(dist(sc), method="average")
+plot(hc.average.8, main="Average Linkage", xlab="", sub="",cex =.9)
+cut.tree.avg.8 <- cutree(hc.average.8,k=8)
+fviz_cluster(list(data = sc, cluster = cut.tree.avg.8))
+table(cut.tree.avg.8,nuc.cl$class)
 
-## Row- and column-wise clustering 
-hr <- hclust(as.dist(1-cor(t(sc), method="pearson")), method="complete")
-hc <- hclust(as.dist(1-cor(sc, method="spearman")), method="complete") 
-## Tree cutting
-# mycl <- cutree(hr, h=max(hr$height)/1.5); 
-mycl <- cutree(hr, k=2) 
-mycolhc <- rainbow(length(unique(mycl)), start=0.1, end=0.9); 
-mycolhc <- mycolhc[as.vector(mycl)] 
-## Plot heatmap 
-mycol <- colorpanel(40, "darkblue", "yellow", "white") # or try redgreen(75)
-heatmap.2(sc, Rowv=as.dendrogram(hr), Colv=as.dendrogram(hc), col=mycol, scale="row", density.info="none", trace="none", RowSideColors=mycolhc) 
+#Wards
+hc.ward.8 <- hclust(dist(sc), method="ward.D")
+plot(hc.ward.8, main="Ward's Linkage", xlab="", sub="",cex =.9)
+cut.tree.ward.8 <- cutree(hc.ward.8,k=8)
+fviz_cluster(list(data = sc, cluster = cut.tree.ward.8))
+table(cut.tree.ward.8,nuc.cl$class)
 
+#Will repeat the above with a 2 cluster solution 
+#Complete
+hc.complete.2 <- hclust(dist(sc), method="complete")
+plot(hc.complete.2, main="Complete Linkage", xlab="", sub="",cex =.9)
+cut.tree.com.2 <- cutree(hc.complete.2,k=2)
+fviz_cluster(list(data = sc, cluster = cut.tree.com.2))
+table(cut.tree.com.2,nuc.cl$Treatment)
+table(cut.tree.com.2,nuc.cl$Genotype)
+table(cut.tree.com.2,nuc.cl$Behavior)
 
+#Average
+hc.average.2 <- hclust(dist(sc), method="average")
+plot(hc.average.2, main="Average Linkage", xlab="", sub="",cex =.9)
+cut.tree.avg.2 <- cutree(hc.average.2,k=2)
+fviz_cluster(list(data = sc, cluster = cut.tree.avg.2))
+table(cut.tree.avg.2,nuc.cl$Treatment)
+table(cut.tree.avg.2,nuc.cl$Genotype)
+table(cut.tree.avg.2,nuc.cl$Behavior)
 
-##########################################
-################## PCA ###################
-
-pr.out <- prcomp(sc, scale=F)
-pr.out$rotation
-
-# bivariate plot, plotting together the points and the features based on the first 2 pc's
-biplot(pr.out, scale=0)
-pr.out$sdev
-pr.var <- pr.out$sdev^2
-pr.var
-pve <- pr.var/sum(pr.var) #proportion that each pc explains variance
-pve
-plot(pve, xlab="Principal Component", ylab="Proportion of
-     Variance Explained ", ylim=c(0,1) ,type="b")
-plot(cumsum(pve), xlab="Principal Component", ylab="
-     Cumulative Proportion of Variance Explained ", ylim=c(0,1) ,
-     type="b")
-
-##########################################
-################## PAM ###################
-
-library(cluster)
-library(fpc)
-
-pk <- pamk(nuc.cl[,2:73])
-pks <- pamk(sc)
-pks$nc
-
-pr4 <- pam(sc,k = 8) #from cluster package; pam is assuming you want to use euclidian distance
-si <- silhouette(pr4)
-ssi <- summary(si)
-ssi #cluster sizes add up to 64 units
-plot(si,col = 1:8)
+#Wards
+hc.ward.2 <- hclust(dist(sc), method="ward.D")
+plot(hc.ward.2, main="Ward's Linkage", xlab="", sub="",cex =.9)
+cut.tree.ward.2 <- cutree(hc.ward.2,k=2)
+fviz_cluster(list(data = sc, cluster = cut.tree.ward.2))
+table(cut.tree.ward.2,nuc.cl$Treatment)
+table(cut.tree.ward.2,nuc.cl$Genotype)
+table(cut.tree.ward.2,nuc.cl$Behavior)
